@@ -63,7 +63,8 @@ jobs:
           echo "sha=$(git -C src rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
           echo "tag=$(git -C src rev-parse --short=12 HEAD)-b$(git -C self rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
       # Tipline icons replace Cal.diy's in apps/web/public (favicons, touch and tile icons,
-      # the in-app icon SVG, the web manifest). The upstream Dockerfile declares no
+      # the in-app icon SVG, the web manifest, and emails/logo.png, the wordmark at the foot
+      # of every email, which upstream ships as a "Cal.diy" image). The upstream Dockerfile declares no
       # NEXT_PUBLIC_APP_NAME build arg, so add one to its builder stage; turbo.json already
       # passes that variable through to the Next.js build.
       #
@@ -77,7 +78,8 @@ jobs:
           APP_NAME: ${{ inputs.app_name }}
         run: |
           case "$APP_NAME" in *[/\&\|\\\"]*) echo "app_name must not contain / & | \\ or \""; exit 1;; esac
-          cp -v self/branding/public/* src/apps/web/public/
+          cp -rv self/branding/public/. src/apps/web/public/
+          cmp self/branding/public/emails/logo.png src/apps/web/public/emails/logo.png
           sed -i '0,/^WORKDIR \/calcom$/s//WORKDIR \/calcom\nARG NEXT_PUBLIC_APP_NAME\nENV NEXT_PUBLIC_APP_NAME=$NEXT_PUBLIC_APP_NAME/' src/Dockerfile
           grep -n -A2 '^WORKDIR /calcom$' src/Dockerfile | head -4
           grep -q '^ENV NEXT_PUBLIC_APP_NAME=\$NEXT_PUBLIC_APP_NAME$' src/Dockerfile
