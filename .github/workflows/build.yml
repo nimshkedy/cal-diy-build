@@ -72,6 +72,18 @@ jobs:
           sed -i '0,/^WORKDIR \/calcom$/s//WORKDIR \/calcom\nARG NEXT_PUBLIC_APP_NAME\nENV NEXT_PUBLIC_APP_NAME=$NEXT_PUBLIC_APP_NAME/' src/Dockerfile
           grep -n -A2 '^WORKDIR /calcom$' src/Dockerfile | head -4
           grep -q '^ENV NEXT_PUBLIC_APP_NAME=\$NEXT_PUBLIC_APP_NAME$' src/Dockerfile
+      # Cal.diy creates, updates and deletes Google Calendar events with sendUpdates "none"
+      # (it emails guests itself), so guests never get Google's invite, reschedule or
+      # cancellation. nimo wants Google's invites (2026-11-19): flip all three to "all".
+      # Fails the build if upstream changes the count, so the patch never silently lapses.
+      - name: Send Google Calendar invites to guests
+        run: |
+          F=src/packages/app-store/googlecalendar/lib/CalendarService.ts
+          test "$(grep -c 'sendUpdates: "none"' $F)" = 3
+          sed -i 's/sendUpdates: "none"/sendUpdates: "all"/; s/sendNotifications: false,/sendNotifications: true,/' $F
+          test "$(grep -c 'sendUpdates: "all"' $F)" = 3
+          test "$(grep -c 'sendUpdates: "none"' $F)" = 0
+          grep -n 'sendUpdates\|sendNotifications' $F
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
