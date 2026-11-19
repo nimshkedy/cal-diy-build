@@ -15,6 +15,10 @@ on:
         description: "Public URL the web app is served at (baked into the build)"
         required: true
         default: "https://cal.tipline.ai"
+      app_name:
+        description: "Product name shown in page titles and emails (NEXT_PUBLIC_APP_NAME, baked into the build)"
+        required: true
+        default: "Tipline Scheduling"
       build_api_v2:
         description: "Also build the API v2 image"
         type: boolean
@@ -50,8 +54,24 @@ jobs:
           repository: calcom/cal.diy
           ref: ${{ inputs.upstream_ref }}
           path: src
+      - uses: actions/checkout@v4
+        with:
+          path: self
+      # The tag names both inputs: upstream commit + this repo's commit (the branding).
       - id: meta
-        run: echo "sha=$(git -C src rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "sha=$(git -C src rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+          echo "tag=$(git -C src rev-parse --short=12 HEAD)-b$(git -C self rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+      # Tipline icons replace Cal.diy's in apps/web/public (favicons, touch and tile icons,
+      # the in-app icon SVG, the web manifest). The upstream Dockerfile declares no
+      # NEXT_PUBLIC_APP_NAME build arg, so add one to its builder stage; turbo.json already
+      # passes that variable through to the Next.js build.
+      - name: Apply Tipline branding
+        run: |
+          cp -v self/branding/public/* src/apps/web/public/
+          sed -i '0,/^WORKDIR \/calcom$/s//WORKDIR \/calcom\nARG NEXT_PUBLIC_APP_NAME\nENV NEXT_PUBLIC_APP_NAME=$NEXT_PUBLIC_APP_NAME/' src/Dockerfile
+          grep -n -A2 '^WORKDIR /calcom$' src/Dockerfile | head -4
+          grep -q '^ENV NEXT_PUBLIC_APP_NAME=\$NEXT_PUBLIC_APP_NAME$' src/Dockerfile
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -62,6 +82,7 @@ jobs:
         run: |
           IMG=ghcr.io/${{ github.repository_owner }}/cal-diy-web
           docker build --network host \
+            --build-arg "NEXT_PUBLIC_APP_NAME=${{ inputs.app_name }}" \
             --build-arg NEXT_PUBLIC_WEBAPP_URL=${{ inputs.webapp_url }} \
             --build-arg NEXT_PUBLIC_API_V2_URL=${{ inputs.webapp_url }}/api/v2 \
             --build-arg NEXT_PUBLIC_LICENSE_CONSENT=agree \
@@ -69,9 +90,9 @@ jobs:
             --build-arg DATABASE_URL=$PG_URL \
             --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
             --label org.opencontainers.image.revision=${{ steps.meta.outputs.sha }} \
-            -t $IMG:${{ steps.meta.outputs.sha }} -t $IMG:latest .
+            -t $IMG:${{ steps.meta.outputs.tag }} -t $IMG:latest .
           docker image ls $IMG
-          docker push $IMG:${{ steps.meta.outputs.sha }}
+          docker push $IMG:${{ steps.meta.outputs.tag }}
           docker push $IMG:latest
 
   api-v2:

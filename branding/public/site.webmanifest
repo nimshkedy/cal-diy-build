@@ -1,0 +1,23 @@
+{
+    "name": "Tipline Scheduling",
+    "short_name": "Tipline",
+    "description": "Book a time with the Tipline team.",
+    "icons": [
+        {
+            "src": "/api/logo?type=android-chrome-192",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "/api/logo?type=android-chrome-256",
+            "sizes": "256x256",
+            "type": "image/png"
+        }
+    ],
+    "theme_color": "#000000",
+    "background_color": "#000000",
+    "display_override": ["minimal-ui"],
+    "display": "standalone",
+    "scope": "/",
+    "start_url": "/"
+}
