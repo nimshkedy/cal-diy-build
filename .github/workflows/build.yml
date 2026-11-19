@@ -19,6 +19,10 @@ on:
         description: "Product name shown in page titles and emails (NEXT_PUBLIC_APP_NAME, baked into the build)"
         required: true
         default: "Tipline Scheduling"
+      privacy_url:
+        description: "Privacy policy the booking form links to (NEXT_PUBLIC_WEBSITE_PRIVACY_POLICY_URL, baked into the build)"
+        required: true
+        default: "https://impact11.com/privacy/"
       build_api_v2:
         description: "Also build the API v2 image"
         type: boolean
@@ -114,6 +118,39 @@ jobs:
           test "$(grep -c 'sendUpdates: "all"' $F)" = 3
           test "$(grep -c 'sendUpdates: "none"' $F)" = 0
           grep -n 'sendUpdates\|sendNotifications' $F
+      # Tipline's look and links (nimo, 2026-11-19), so the calendar embedded on tipline.ai matches the site:
+      # - no rounded corners: Cal's Button and ToggleGroup hard-code rounded-[10px], which the embed's CSS
+      #   variables cannot reach, so one global rule squares everything except rounded-full (avatars, dots,
+      #   switches, radios);
+      # - Plus Jakarta Sans instead of Inter (and ahead of Cal Sans for headings);
+      # - the booking form's legal line names only the privacy policy (Tipline has no terms page);
+      # - the "Google's new spam policy" warning for Gmail guests is off: it links a cal.com blog post, and
+      #   here the invite comes from Google itself.
+      # Every count is asserted, so an upstream change fails the build.
+      - name: Apply Tipline style
+        run: |
+          F=src/apps/web/styles/globals.css
+          test "$(grep -c 'border-radius:0!important' $F)" = 0
+          printf '\n/* Tipline: no rounded corners (cal-diy-build) */\n*:not(.rounded-full){border-radius:0!important}\n' >> $F
+
+          for F in src/apps/web/app/layout.tsx src/apps/web/components/PageWrapper.tsx; do
+            test "$(grep -c '^import { Inter } from "next/font/google";$' $F)" = 1
+            test "$(grep -c '^const interFont = Inter({' $F)" = 1
+            test "$(grep -c -- '--font-cal: ${calFont.style.fontFamily' $F)" = 1
+            sed -i 's|^import { Inter } from "next/font/google";$|import { Plus_Jakarta_Sans } from "next/font/google";|; s|^const interFont = Inter({|const interFont = Plus_Jakarta_Sans({|; s|--font-cal: ${calFont.style.fontFamily|--font-cal: ${interFont.style.fontFamily.replace(/\x27/g, "")}, ${calFont.style.fontFamily|' $F
+            grep -n 'Plus_Jakarta_Sans\|--font-cal:' $F
+          done
+
+          F=src/packages/i18n/locales/en/common.json
+          test "$(grep -c '"signing_up_terms": "By proceeding, you agree to .*<0>Terms</0> and <1>Privacy Policy</1>\."' $F)" = 1
+          sed -i 's|"signing_up_terms": "By proceeding, you agree to .*<0>Terms</0> and <1>Privacy Policy</1>\."|"signing_up_terms": "By proceeding, you agree to Tipline\x27s <1>Privacy Policy</1>."|' $F
+          grep -n '"signing_up_terms"' $F
+          python3 -c 'import json,sys; json.load(open(sys.argv[1]))' $F
+
+          F=src/apps/web/modules/bookings/views/bookings-single-view.tsx
+          test "$(grep -c 'const isGmail = !!attendees.find((attendee) => attendee?.email?.includes("gmail.com"));' $F)" = 1
+          sed -i 's|const isGmail = !!attendees.find((attendee) => attendee?.email?.includes("gmail.com"));|const isGmail = process.env.NEXT_PUBLIC_SHOW_GMAIL_SPAM_NOTICE === "1" \&\& !!attendees.find((attendee) => attendee?.email?.includes("gmail.com"));|' $F
+          grep -n 'const isGmail' $F
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -128,6 +165,8 @@ jobs:
             --build-arg NEXT_PUBLIC_WEBAPP_URL=${{ inputs.webapp_url }} \
             --build-arg NEXT_PUBLIC_API_V2_URL=${{ inputs.webapp_url }}/api/v2 \
             --build-arg NEXT_PUBLIC_LICENSE_CONSENT=agree \
+            --build-arg "NEXT_PUBLIC_WEBSITE_PRIVACY_POLICY_URL=${{ inputs.privacy_url }}" \
+            --build-arg "NEXT_PUBLIC_WEBSITE_TERMS_URL=${{ inputs.privacy_url }}" \
             --build-arg CALCOM_TELEMETRY_DISABLED=1 \
             --build-arg DATABASE_URL=$PG_URL \
             --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
