@@ -66,12 +66,40 @@ jobs:
       # the in-app icon SVG, the web manifest). The upstream Dockerfile declares no
       # NEXT_PUBLIC_APP_NAME build arg, so add one to its builder stage; turbo.json already
       # passes that variable through to the Next.js build.
+      #
+      # NEXT_PUBLIC_APP_NAME only reaches code that reads APP_NAME. "Cal.diy" is also
+      # hard-coded in the login heading, the logo's alt/title, the email-embed "Powered by"
+      # line, and ~1,160 translated strings (every language, used by pages and emails), so
+      # those are rewritten to the app name too. Each count is asserted, so an upstream
+      # change fails the build instead of silently showing "Cal.diy" again.
       - name: Apply Tipline branding
+        env:
+          APP_NAME: ${{ inputs.app_name }}
         run: |
+          case "$APP_NAME" in *[/\&\|\\\"]*) echo "app_name must not contain / & | \\ or \""; exit 1;; esac
           cp -v self/branding/public/* src/apps/web/public/
           sed -i '0,/^WORKDIR \/calcom$/s//WORKDIR \/calcom\nARG NEXT_PUBLIC_APP_NAME\nENV NEXT_PUBLIC_APP_NAME=$NEXT_PUBLIC_APP_NAME/' src/Dockerfile
           grep -n -A2 '^WORKDIR /calcom$' src/Dockerfile | head -4
           grep -q '^ENV NEXT_PUBLIC_APP_NAME=\$NEXT_PUBLIC_APP_NAME$' src/Dockerfile
+
+          F=src/apps/web/modules/auth/login-view.tsx
+          test "$(grep -c '>Cal\.diy</h1>' $F)" = 1
+          sed -i "s|>Cal\.diy</h1>|>${APP_NAME}</h1>|" $F
+
+          F=src/packages/ui/components/logo/Logo.tsx
+          test "$(grep -o '"Cal\.diy"' $F | wc -l)" = 4
+          sed -i "s|\"Cal\.diy\"|\"${APP_NAME}\"|g" $F
+
+          F=src/apps/web/modules/embed/components/Embed.tsx
+          test "$(grep -c '<span> Cal\.diy</span>' $F)" = 1
+          sed -i "s|<span> Cal\.diy</span>|<span> ${APP_NAME}</span>|" $F
+
+          L=src/packages/i18n/locales
+          echo "translated strings mentioning Cal.diy: $(cat $L/*/common.json | grep -o 'Cal\.diy' | wc -l)"
+          sed -i "s|Cal\.diy|${APP_NAME}|g" $L/*/common.json
+          test "$(cat $L/*/common.json | grep -c 'Cal\.diy')" = 0
+          for f in $L/*/common.json; do python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$f"; done
+          grep -n "\"sign_in_to_cal_com\"" $L/en/common.json
       # Cal.diy creates, updates and deletes Google Calendar events with sendUpdates "none"
       # (it emails guests itself), so guests never get Google's invite, reschedule or
       # cancellation. nimo wants Google's invites (2026-11-19): flip all three to "all".
