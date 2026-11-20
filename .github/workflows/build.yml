@@ -151,6 +151,18 @@ jobs:
           test "$(grep -c 'const isGmail = !!attendees.find((attendee) => attendee?.email?.includes("gmail.com"));' $F)" = 1
           sed -i 's|const isGmail = !!attendees.find((attendee) => attendee?.email?.includes("gmail.com"));|const isGmail = process.env.NEXT_PUBLIC_SHOW_GMAIL_SPAM_NOTICE === "1" \&\& !!attendees.find((attendee) => attendee?.email?.includes("gmail.com"));|' $F
           grep -n 'const isGmail' $F
+      # tipline.ai shows the calendar in half the page (about 520px), and nimo wants the day's times beside the
+      # month without a second click (2026-11-20). Upstream switches to its one-column phone layout under 768px;
+      # patches/narrow_booker.py moves that to 480px and narrows the times column to fit. Phones are unchanged.
+      # Scrollbars are thin with a clear track, so a system that always shows them leaves no empty strip.
+      - name: Dates and times side by side from 480px
+        working-directory: src
+        run: |
+          python3 ../self/patches/narrow_booker.py
+          F=apps/web/styles/globals.css
+          test "$(grep -c 'scrollbar-color:#3A3D45 transparent' $F)" = 0
+          printf '\n/* Tipline: thin scrollbars, clear track (cal-diy-build) */\nhtml{scrollbar-width:thin;scrollbar-color:#3A3D45 transparent}\n' >> $F
+          tail -5 $F
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
